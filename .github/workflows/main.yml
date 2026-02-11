@@ -41,9 +41,9 @@ jobs:
           sudo sudo add-apt-repository --remove ppa:ondrej/php
           sudo apt-get purge -y libicu-dev
           sudo apt-get update
-          # TODO
           sudo apt-get install -y \
             libcurl4-openssl-dev \
+            zlib1g-dev \
             cmake
       - name: Download aws-sdk-cpp version
         run: |
@@ -58,6 +58,7 @@ jobs:
           cmake <path-to-root-of-this-source-code> \
            -DCMAKE_BUILD_TYPE=Release \
            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/opt/aws-sdk-cpp \
+           -DENABLE_ZLIB_REQUEST_COMPRESSION=ON \
            -DBUILD_ONLY="${{ env.aws_sdk_cpp_modules }}"
           cmake --build .
           cmake --install .
