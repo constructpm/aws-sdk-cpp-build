@@ -55,7 +55,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake <path-to-root-of-this-source-code> \
+          cmake ../aws-sdk-cpp \
            -DCMAKE_BUILD_TYPE=Release \
            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/opt/aws-sdk-cpp \
            -DENABLE_ZLIB_REQUEST_COMPRESSION=ON \
