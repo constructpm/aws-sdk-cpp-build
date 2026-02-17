@@ -1,0 +1,125 @@
+---
+name: CI
+
+env:
+  # The version of aws-sdk-cpp that should get built
+  # This will need to match the tags used in the aws/aws-sdk-cpp repo
+  # For example this version will use source from aws/aws-sdk-cpp tag "1.11.746"
+  aws_sdk_cpp_version: "1.11.746"
+  # A semicolon delimited list of modules to include in the build
+  aws_sdk_cpp_modules: "s3"
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  push:
+    tags:
+      - v*
+    paths-ignore:
+      - '**/*.md'
+
+jobs:
+  build:
+    name: "Build ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04]
+
+    steps:
+      - id: config
+        run: |
+          artefact_name="aws-sdk-cpp-${{ env.aws_sdk_cpp_version }}-${{ matrix.os }}.tar.gz"
+          echo "artefact_name=$artefact_name" >> $GITHUB_OUTPUT
+      - name: Install dependencies
+        run: |
+          # Actions runners include some awful PPAs!
+          ls /etc/apt/sources.list.d/
+          sudo sudo add-apt-repository --remove ppa:ondrej/php
+          sudo apt-get purge -y libicu-dev
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            zlib1g-dev \
+            cmake
+      - name: Download aws-sdk-cpp version
+        run: |
+          git clone --recurse-submodules https://github.com/aws/aws-sdk-cpp
+          cd aws-sdk-cpp
+          git checkout ${{ env.aws_sdk_cpp_version }}
+          cd ..
+      - name: Build
+        run: |
+          mkdir -p build
+          cd build
+          cmake ../aws-sdk-cpp \
+           -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/opt/aws-sdk-cpp \
+           -DENABLE_ZLIB_REQUEST_COMPRESSION=ON \
+           -DBUILD_ONLY="${{ env.aws_sdk_cpp_modules }}"
+          cmake --build .
+          cmake --install .
+      - name: Archive
+        working-directory: ${{ github.workspace }}/opt
+        run: tar cJfv "${{ steps.config.outputs.artefact_name }}" aws-sdk-cpp
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ steps.config.outputs.artefact_name }}"
+          path: "${{ github.workspace }}/opt/${{ steps.config.outputs.artefact_name }}"
+
+  release:
+    if: contains(github.ref, 'tags/v')
+
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs:
+      - build
+
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+  upload:
+    if: contains(github.ref, 'tags/v')
+
+    name: "Upload ${{ matrix.os }} to release"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04]
+    needs: release
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        env:
+          artefact_name: aws-sdk-cpp-${{ env.aws_sdk_cpp_version }}-${{ matrix.os }}.tar.gz 
+        with:
+          name: "${{ env.artefact_name }}"
+          path: ./
+      - name: Upload to Release
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          artefact_name: aws-sdk-cpp-${{ env.aws_sdk_cpp_version }}-${{ matrix.os }}.tar.gz 
+        with:
+          upload_url: ${{ needs.release.outputs.upload_url }}
+          asset_path: "./${{ env.artefact_name }}"
+          asset_name: "${{ env.artefact_name }}"
+          asset_content_type: application/x-gtar
